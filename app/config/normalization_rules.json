@@ -1,0 +1,168 @@
+{
+  "schema": [
+    {
+      "name": "id",
+      "type": "string",
+      "description": "Original identifier trimmed when a string, or converted from an integer."
+    },
+    {
+      "name": "amount",
+      "type": "number",
+      "description": "Positive amount in major currency units, exactly representable to two decimal places."
+    },
+    {
+      "name": "currency",
+      "type": "string",
+      "description": "Uppercase three-letter code; supported values are USD and EUR."
+    },
+    {
+      "name": "timestamp",
+      "type": "string",
+      "description": "UTC ISO 8601 timestamp ending in Z, with nonzero fractional seconds preserved."
+    },
+    {
+      "name": "status",
+      "type": "string",
+      "description": "One of SUCCESS, FAILED, or PENDING."
+    },
+    {
+      "name": "source",
+      "type": "string",
+      "description": "Detected input format: format_a, format_b, or format_c."
+    }
+  ],
+  "source_detection": {
+    "method": "A record must be a JSON object containing every exact required key for exactly one format. Additional keys are allowed. Key values are validated separately.",
+    "ambiguous": "Separate as invalid with an Ambiguous source format error; do not prioritize a format.",
+    "unknown": "Separate as invalid with an Unknown or incomplete source format error.",
+    "non_object": "Separate as invalid.",
+    "continue_after_record_error": true,
+    "formats": {
+      "format_a": {
+        "required_keys": ["id", "amount", "currency", "timestamp", "status"],
+        "amount_key": "amount",
+        "currency_key": "currency",
+        "date_key": "timestamp",
+        "status_key": "status"
+      },
+      "format_b": {
+        "required_keys": ["transaction_id", "total", "currency_code", "created_at", "state"],
+        "amount_key": "total",
+        "currency_key": "currency_code",
+        "date_key": "created_at",
+        "status_key": "state"
+      },
+      "format_c": {
+        "required_keys": ["ref", "amount", "date", "result"],
+        "amount_key": "amount",
+        "currency_key": null,
+        "date_key": "date",
+        "status_key": "result"
+      }
+    }
+  },
+  "amount_rules": {
+    "internal_type": "Python Decimal",
+    "output_type": "JSON number",
+    "format_a": "amount is in major currency units; for example, 100.50 means 100.50.",
+    "format_b": "total is a JSON number of integer minor currency units; for example, 10050 means 100.50 major units. Fractional minor-unit values and string totals are rejected.",
+    "format_c": "amount is in major currency units; a leading € symbol means EUR (for example, €99,99 means 99.99 EUR).",
+    "major_unit_inputs": "Accept JSON numbers and numeric strings. Strings may use one period or one comma as the decimal separator; thousands separators are not supported. Reject mixed or repeated separators, embedded spaces, scientific notation in strings, booleans, null, non-finite values, unsupported symbols, and malformed numeric strings. Trim surrounding whitespace. A single leading $ or € symbol is allowed.",
+    "symbol_mapping": {
+      "$": "USD",
+      "€": "EUR"
+    },
+    "precision": "USD and EUR support two decimal places. Accept extra trailing zeros, reject amounts that would require rounding, and normalize to two decimal places internally.",
+    "valid_range": "Amounts must be greater than zero. Zero and negative amounts are invalid.",
+    "rounding": "Never round or exchange currency."
+  },
+  "currency_rules": {
+    "supported": ["USD", "EUR"],
+    "normalization": "Trim surrounding whitespace and uppercase explicit codes.",
+    "format_a_field": "currency",
+    "format_b_field": "currency_code",
+    "format_c": "Infer currency only from a recognized leading amount symbol.",
+    "fallback": "For format_a and format_b, a missing, null, or blank currency value may be supplied by a recognized amount symbol. The currency key must still be present for source detection.",
+    "invalid_cases": "An explicit nonempty unsupported code is invalid even when a symbol is present. A code/symbol conflict is invalid. If neither a supported explicit code nor a recognized symbol resolves currency, the record is invalid.",
+    "no_inference_from": ["source format", "locale", "amount value alone"],
+    "exchange": false
+  },
+  "status_rules": {
+    "normalization": "Require a string, trim surrounding whitespace, and lowercase before lookup.",
+    "mappings": {
+      "format_a": {
+        "completed": "SUCCESS",
+        "success": "SUCCESS",
+        "failed": "FAILED",
+        "pending": "PENDING"
+      },
+      "format_b": {
+        "ok": "SUCCESS",
+        "success": "SUCCESS",
+        "failed": "FAILED",
+        "error": "FAILED",
+        "pending": "PENDING"
+      },
+      "format_c": {
+        "success": "SUCCESS",
+        "failed": "FAILED",
+        "error": "FAILED",
+        "pending": "PENDING"
+      }
+    },
+    "unknown_or_missing": "Invalid; do not guess or default to PENDING."
+  },
+  "date_rules": {
+    "format_a": {
+      "field": "timestamp",
+      "accepted_format": "YYYY-MM-DD HH:mm:ss",
+      "timezone_assumption": "UTC"
+    },
+    "format_b": {
+      "field": "created_at",
+      "accepted_format": "DD/MM/YYYY HH:mm",
+      "interpretation": "Day first; 10/03/2025 14:22 means March 10, 2025. Set seconds to 00.",
+      "timezone_assumption": "UTC"
+    },
+    "format_c": {
+      "field": "date",
+      "accepted_format": "YYYY-MM-DDTHH:mm:ssZ or YYYY-MM-DDTHH:mm:ss±HH:mm; optional fractional seconds of one to six digits.",
+      "timezone_assumption": "An explicit timezone is required."
+    },
+    "output": "UTC ISO 8601 ending in Z. Preserve nonzero fractional seconds to six digits and remove trailing zeros.",
+    "invalid_cases": "Trim surrounding whitespace; reject impossible dates, invalid times, missing/blank/non-string values, unsupported formats, Unix timestamps, and date-only values. Do not guess."
+  },
+  "validation": {
+    "required_normalized_fields": ["id", "amount", "currency", "timestamp", "status", "source"],
+    "id": "Accept a nonblank string (trim it) or an integer excluding booleans (convert it to text). Reject missing, null, blank, fractional, boolean, array, and object IDs. Do not generate IDs.",
+    "record": "Must match exactly one supported source format by required-key presence; extra keys are allowed.",
+    "invalid_record": "If any criterion fails, do not include a partially normalized transaction in the valid collection.",
+    "collect_reasons": "Preserve all validation reasons that can be reliably determined and continue with later records.",
+    "original_position": "Preserve the input-array position for every entry; expose a one-based position in the interface and a zero-based index in metadata."
+  },
+  "duplicates": {
+    "key": "(source, normalized id), compared case-sensitively within one imported file.",
+    "retention": "Keep the first otherwise-valid occurrence in input order.",
+    "later_occurrence": "Separate each later otherwise-valid occurrence as invalid with a Duplicate transaction error referencing the retained record's one-based input position.",
+    "invalid_earlier_record": "A record that fails validation does not reserve its duplicate key.",
+    "dataset_scope": "A new import starts duplicate tracking from scratch."
+  },
+  "invalid_record_policy": {
+    "handling": "Separate invalid and incomplete records from valid normalized transactions; do not silently discard them.",
+    "preserve": "Retain the original parsed JSON record, input position, detected source when identifiable, available identifier, and all reliably determined validation reasons.",
+    "includes_duplicates": true,
+    "continue_after_record_error": true,
+    "file_level_failure": "Malformed JSON or an unsupported top-level structure does not replace the currently loaded dataset."
+  },
+  "metrics": {
+    "total_processed": "Every entry in a successfully imported JSON array, including invalid entries and duplicates.",
+    "valid": "Records that pass validation and remain after duplicate handling.",
+    "invalid": "Rejected entries, including incomplete, unknown/ambiguous, non-object, and duplicate records.",
+    "invariant": "processed = valid + invalid.",
+    "status_counts": "Count valid retained records only. Show SUCCESS, FAILED, and PENDING, including zero counts.",
+    "currency_totals": "Label as Successful transaction totals by currency. Sum only valid retained SUCCESS transactions, separately for USD and EUR. Exclude FAILED, PENDING, invalid, and duplicate records.",
+    "overview_scope": "Always describe the entire currently loaded dataset and do not change with transaction-table filters. Label Full dataset overview.",
+    "filter_scope": "Filters affect only the transaction list and its Matching valid transactions result count.",
+    "empty_dataset": "An empty array is a successful import with zero counts and totals."
+  }
+}

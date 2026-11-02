@@ -1,0 +1,22 @@
+[
+  {
+    "id": "clean_a_001",
+    "amount": "42.75",
+    "currency": "USD",
+    "timestamp": "2025-03-10 14:22:00",
+    "status": "completed"
+  },
+  {
+    "transaction_id": 204,
+    "total": 1250,
+    "currency_code": "EUR",
+    "created_at": "10/03/2025 14:22",
+    "state": "OK"
+  },
+  {
+    "ref": "clean_c_003",
+    "amount": "€9,99",
+    "date": "2025-03-10T16:22:00+02:00",
+    "result": "pending"
+  }
+]
