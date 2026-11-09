@@ -1,0 +1,33 @@
+{
+  "profiles": {
+    "auditor": {
+      "name": "Auditor",
+      "description": "Traceable review focused on validation, input positions, applied rules, and exceptions.",
+      "emphasis": [
+        "Processed, retained, and rejected counts",
+        "Validation reasons and one-based input positions",
+        "Recorded transformations and applicable configured rules",
+        "Successful totals separated by currency"
+      ],
+      "correction_guidance": "State only corrections directly supported by the recorded validation reason and configured rules. Do not guess intended values."
+    },
+    "support_analyst": {
+      "name": "Support Analyst",
+      "description": "Plain-language explanation with practical, evidence-based input corrections.",
+      "emphasis": [
+        "What the processing result means in plain language",
+        "Which records need attention and why",
+        "Practical input corrections supported by the recorded reason",
+        "Successful totals separated by currency"
+      ],
+      "correction_guidance": "Offer a concrete correction only when the recorded reason and configured rule establish it. Ask the user to confirm unknown business values such as the intended currency or status."
+    }
+  },
+  "report_contract": [
+    "Use only facts present in the verified analysis result and configured rules.",
+    "Keep successful currency totals separate; never combine currencies.",
+    "Do not invent validation reasons, record positions, transformations, or transaction facts.",
+    "Do not suggest a guessed business value as a correction.",
+    "For an empty dataset, state that no transaction records were processed and report the zero metrics."
+  ]
+}

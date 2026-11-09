@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import json
-import re
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from flask import Flask, Response, jsonify, render_template, request
 
-from app.metrics import calculate_metrics
-from app.normalizer import normalize_dataset
+from app.analysis import analyze_transactions, encode_json
+from app.reporting import (
+    ReportConfigurationError,
+    ReportGenerationError,
+    explain_results,
+)
 
 ROOT = Path(__file__).resolve().parent
 RULES_PATH = ROOT / "config" / "normalization_rules.json"
+PROFILES_PATH = ROOT / "config" / "agent_profiles.json"
+EXPLAIN_SKILL_PATH = ROOT.parent / ".github" / "skills" / "explain-results" / "SKILL.md"
 
 
 class InvalidJSONConstant(ValueError):
@@ -25,31 +30,32 @@ def _reject_json_constant(value: str) -> None:
     raise InvalidJSONConstant(f"Invalid non-finite JSON value: {value}.")
 
 
-def _encode_json(value: Any) -> str:
-    if isinstance(value, Decimal):
-        if not value.is_finite():
-            raise ValueError("Non-finite Decimal values cannot be serialized as JSON.")
-        return format(value, "f")
-    if value is None:
-        return "null"
-    if value is True:
-        return "true"
-    if value is False:
-        return "false"
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        return json.dumps(value, allow_nan=False)
-    if isinstance(value, list):
-        return "[" + ",".join(_encode_json(item) for item in value) + "]"
-    if isinstance(value, dict):
-        return "{" + ",".join(
-            f"{json.dumps(str(key), ensure_ascii=False)}:{_encode_json(item)}"
-            for key, item in value.items()
-        ) + "}"
-    raise TypeError(f"Unsupported JSON value type: {type(value).__name__}.")
+def _parse_upload(upload: Any) -> tuple[list[Any] | None, tuple[str, int] | None]:
+    if upload is None or not upload.filename:
+        return None, ("Choose a JSON file to process.", 400)
+    if not upload.filename.lower().endswith(".json"):
+        return None, ("The selected file must have a .json extension.", 400)
+
+    raw = upload.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return None, ("The uploaded file must be UTF-8 encoded JSON.", 400)
+
+    try:
+        payload = json.loads(
+            text,
+            parse_float=Decimal,
+            parse_constant=_reject_json_constant,
+        )
+    except (json.JSONDecodeError, InvalidJSONConstant) as exc:
+        return None, (f"Malformed JSON: {exc}", 400)
+    if not isinstance(payload, list):
+        return None, (
+            "Unsupported JSON structure: the top-level value must be an array.",
+            400,
+        )
+    return payload, None
 
 
 def create_app() -> Flask:
@@ -58,6 +64,10 @@ def create_app() -> Flask:
 
     with RULES_PATH.open(encoding="utf-8") as rules_file:
         rules = json.load(rules_file)
+    with PROFILES_PATH.open(encoding="utf-8") as profiles_file:
+        profiles = json.load(profiles_file)
+    skill_text = EXPLAIN_SKILL_PATH.read_text(encoding="utf-8")
+    skill_instructions = skill_text.split("---", 2)[-1].strip()
 
     @app.get("/")
     def index() -> str:
@@ -67,43 +77,67 @@ def create_app() -> Flask:
     def get_rules() -> Response:
         return jsonify(rules)
 
+    @app.get("/api/profiles")
+    def get_profiles() -> Response:
+        return jsonify({
+            profile_id: {
+                "name": profile["name"],
+                "description": profile["description"],
+            }
+            for profile_id, profile in profiles["profiles"].items()
+        })
+
     @app.post("/api/import")
-    def import_dataset() -> Response:
+    def import_dataset() -> Response | tuple[Response, int]:
         upload = request.files.get("file")
-        if upload is None or not upload.filename:
-            return jsonify({"error": "Choose a JSON file to process."}), 400
-        if not upload.filename.lower().endswith(".json"):
-            return jsonify({"error": "The selected file must have a .json extension."}), 400
+        payload, error = _parse_upload(upload)
+        if error is not None:
+            return jsonify({"error": error[0]}), error[1]
+        if payload is None:
+            return jsonify({"error": "The transaction file could not be parsed."}), 400
 
-        raw = upload.read()
-        try:
-            text = raw.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            return jsonify({"error": "The uploaded file must be UTF-8 encoded JSON."}), 400
-
-        try:
-            payload = json.loads(
-                text,
-                parse_float=Decimal,
-                parse_constant=_reject_json_constant,
-            )
-        except (json.JSONDecodeError, InvalidJSONConstant) as exc:
-            return jsonify({"error": f"Malformed JSON: {exc}"}), 400
-        if not isinstance(payload, list):
-            return jsonify({"error": "Unsupported JSON structure: the top-level value must be an array."}), 400
-
-        dataset = normalize_dataset(payload, rules)
-        metrics = calculate_metrics(dataset)
+        analysis = analyze_transactions(payload, rules)
+        metrics = analysis["metrics"]
         metrics["currency_totals_display"] = {
             currency: format(total, ".2f")
             for currency, total in metrics["currency_totals"].items()
         }
         response_data = {
             "filename": upload.filename,
-            **dataset,
-            "metrics": metrics,
+            **analysis,
         }
-        return Response(_encode_json(response_data), mimetype="application/json")
+        return Response(encode_json(response_data), mimetype="application/json")
+
+    @app.post("/api/report")
+    def generate_report() -> tuple[Response, int]:
+        profile_id = request.form.get("profile", "")
+        if profile_id not in profiles["profiles"]:
+            return jsonify({"error": "Choose a supported report profile."}), 400
+
+        payload, error = _parse_upload(request.files.get("file"))
+        if error is not None:
+            return jsonify({"error": error[0]}), error[1]
+        if payload is None:
+            return jsonify({"error": "The transaction file could not be parsed."}), 400
+
+        analysis = analyze_transactions(payload, rules)
+        try:
+            report = explain_results(
+                analysis,
+                profile_id,
+                rules,
+                profiles,
+                skill_instructions,
+            )
+        except ReportConfigurationError as exc:
+            return jsonify({"error": str(exc)}), 503
+        except ReportGenerationError as exc:
+            return jsonify({"error": str(exc)}), 502
+        return jsonify({
+            "provider": "OpenAI",
+            "profile": profile_id,
+            "report": report,
+        })
 
     @app.errorhandler(413)
     def request_too_large(_error: Exception) -> tuple[Response, int]:

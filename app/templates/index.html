@@ -80,6 +80,34 @@
           </div>
           <div id="import-feedback" class="feedback" role="status" aria-live="polite" hidden></div>
           <div id="import-summary" class="summary-grid" hidden></div>
+          <section class="panel report-panel" aria-labelledby="report-title">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">PROFILE-ADAPTED EXPLANATION</p>
+                <h2 id="report-title">Generate Analysis</h2>
+              </div>
+            </div>
+            <div class="report-controls">
+              <label class="filter-control" for="report-profile">
+                <span>Report profile</span>
+                <select id="report-profile" class="control-input" disabled>
+                  <option value="">Loading profiles…</option>
+                </select>
+              </label>
+              <button id="generate-report" class="button button-primary" type="button" disabled>
+                Generate Analysis <span aria-hidden="true">→</span>
+              </button>
+            </div>
+            <p id="report-status" class="report-status" role="status" aria-live="polite">
+              Import a dataset and select a profile to generate a report.
+            </p>
+            <p class="report-disclosure">
+              Generating a report sends aggregate metrics, record positions,
+              sources, transformations, and validation reasons to OpenAI.
+              Original records, identifiers, amounts, and timestamps are omitted.
+            </p>
+            <article id="report-content" class="report-content" hidden></article>
+          </section>
         </section>
 
         <section class="view" id="view-overview" aria-labelledby="overview-title" hidden>

@@ -9,10 +9,12 @@ const viewLabels = {
 };
 
 let dataset = null;
+let datasetFile = null;
 let rules = null;
 let currentPage = 0;
 let sortField = "timestamp";
 let sortAscending = false;
+let reportRequestId = 0;
 
 const byId = (id) => document.getElementById(id);
 
@@ -45,6 +47,65 @@ function setFeedback(message, isError = true) {
   feedback.hidden = !message;
   feedback.classList.toggle("feedback-success", !isError);
   feedback.classList.toggle("feedback-error", isError);
+}
+
+function setReportState(state, message, report = "") {
+  const status = byId("report-status");
+  const reportContent = byId("report-content");
+  const generateButton = byId("generate-report");
+  const profileSelect = byId("report-profile");
+  status.textContent = message;
+  status.classList.toggle("report-error", state === "failure");
+  status.classList.toggle("report-loading", state === "loading");
+  status.setAttribute("aria-busy", String(state === "loading"));
+  reportContent.textContent = report;
+  reportContent.hidden = state !== "success";
+  generateButton.disabled = !datasetFile || !profileSelect.value || state === "loading";
+  profileSelect.disabled = profileSelect.options.length <= 1 || state === "loading";
+}
+
+async function loadProfiles() {
+  const profileSelect = byId("report-profile");
+  try {
+    const response = await fetch("/api/profiles");
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not load report profiles.");
+    profileSelect.replaceChildren(new Option("Select a profile", ""));
+    Object.entries(result).forEach(([profileId, profile]) => {
+      profileSelect.append(new Option(profile.name, profileId));
+    });
+    setReportState(
+      "idle",
+      "Import a dataset and select a profile to generate a report.",
+    );
+  } catch (error) {
+    profileSelect.replaceChildren(new Option("Profiles unavailable", ""));
+    setReportState("failure", error.message);
+  }
+}
+
+async function generateReport() {
+  if (!datasetFile || !byId("report-profile").value) return;
+
+  const requestId = ++reportRequestId;
+  setReportState("loading", "Generating a profile-adapted report with OpenAI…");
+  try {
+    const formData = new FormData();
+    formData.append("file", datasetFile);
+    formData.append("profile", byId("report-profile").value);
+    const response = await fetch("/api/report", { method: "POST", body: formData });
+    let result;
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error(`The server returned an unreadable response (HTTP ${response.status}).`);
+    }
+    if (!response.ok) throw new Error(result.error || `Report generation failed (HTTP ${response.status}).`);
+    if (requestId !== reportRequestId) return;
+    setReportState("success", `${result.provider} generated this analysis report.`, result.report);
+  } catch (error) {
+    if (requestId === reportRequestId) setReportState("failure", error.message);
+  }
 }
 
 function formatAmount(value, currency) {
@@ -541,6 +602,9 @@ async function processSelectedFile() {
     if (!response.ok) throw new Error(result.error || `Import failed (HTTP ${response.status}).`);
 
     dataset = result;
+    datasetFile = file;
+    reportRequestId += 1;
+    setReportState("idle", "No report generated for this dataset.");
     currentPage = 0;
     sortField = "timestamp";
     sortAscending = false;
@@ -568,6 +632,13 @@ byId("json-file").addEventListener("change", (event) => {
   byId("process-file").disabled = !file;
   setFeedback("");
 });
+
+byId("report-profile").addEventListener("change", () => {
+  reportRequestId += 1;
+  setReportState("idle", "Generate a new report for the selected profile.");
+});
+byId("generate-report").addEventListener("click", generateReport);
+loadProfiles();
 byId("process-file").addEventListener("click", processSelectedFile);
 byId("dialog-close").addEventListener("click", () => byId("record-dialog").close());
 window.addEventListener("hashchange", () => showView(location.hash.slice(1)));

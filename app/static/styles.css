@@ -30,7 +30,7 @@ body {
 button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: inherit; text-decoration: none; }
-button:focus-visible, a:focus-visible, input:focus-visible {
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
   outline: 2px solid var(--green);
   outline-offset: 3px;
 }
@@ -186,6 +186,14 @@ h1 { margin-bottom: 8px; font-size: clamp(24px, 3vw, 31px); font-weight: 600; le
 .button:disabled { cursor: not-allowed; opacity: .45; }
 .button-secondary { border-color: #44444c; background: #202024; color: #dfdde3; }
 .button-secondary:hover { border-color: #6c6c75; background: var(--panel-hover); }
+.report-panel { max-width: 860px; margin-top: 20px; padding: 26px; }
+.report-controls { display: flex; align-items: flex-end; gap: 14px; }
+.report-controls .filter-control { flex: 1; }
+.report-status { margin: 15px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.report-status.report-loading { color: var(--green); }
+.report-status.report-error { color: var(--red); }
+.report-disclosure { margin: 9px 0 0; color: var(--soft); font-size: 10px; line-height: 1.55; }
+.report-content { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 5px; background: #151518; font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
 .notice { margin: 20px 0 0; padding: 11px 12px; border-left: 2px solid #517a68; background: #181e1b; color: #b7c8bf; font-size: 11px; line-height: 1.55; }
 .feedback { max-width: 860px; margin-top: 16px; padding: 12px 14px; border: 1px solid #4d3332; border-radius: 5px; background: #271a19; color: var(--red); font-size: 12px; }
 
@@ -294,7 +302,8 @@ dialog::backdrop { background: rgb(0 0 0 / 68%); backdrop-filter: blur(2px); }
 }
 
 @media (max-width: 440px) {
-  .dataset-chip { max-width: 42%; font-size: 9px; }
+  .dataset-chip { max-width: 42%; font-size: 9px;     .report-controls { align-items: stretch; flex-direction: column; }
+  }
   .page-heading { margin-bottom: 21px; }
   .import-actions { align-items: stretch; flex-direction: column; }
   .import-actions .button { width: 100%; }
